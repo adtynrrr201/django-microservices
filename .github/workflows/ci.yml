@@ -1,30 +1,17 @@
-# .github/workflows/ci.yml
-name: CI - Build and Test
+name: Django CI
 
 on:
   push:
-    branches: ["main"]
+    branches: [ "main" ]
   pull_request:
+    branches: [ "main" ]
 
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: aditya
-          POSTGRES_PASSWORD: adityanur
-          POSTGRES_DB: coba
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd="pg_isready -U test" 
-          --health-interval=10s 
-          --health-timeout=5s 
-          --health-retries=5
 
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Python
@@ -34,11 +21,13 @@ jobs:
 
       - name: Install dependencies
         run: |
-          cd ${{ matrix.service }}
+          pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Run migrations
+        run: |
+          python manage.py migrate --noinput
 
       - name: Run tests
         run: |
-          source venv/bin/activate
           python manage.py test
