@@ -1,0 +1,25 @@
+version: '3.9'
+services:
+  web:
+    build: .
+    container_name: django_app
+    ports:
+      - "8001:8000"
+    depends_on:
+      - db
+    environment:
+      - DB_NAME=coba
+      - DB_USER=aditya
+      - DB_PASSWORD=adityanur
+      - DB_HOST=db
+  db:
+    image: postgres:16
+    container_name: postgres_db
+    environment:
+      POSTGRES_DB: coba
+      POSTGRES_USER: aditya
+      POSTGRES_PASSWORD: adityanur
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+volumes:
+  postgres_data:
