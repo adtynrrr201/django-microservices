@@ -12,11 +12,11 @@ jobs:
 
     services:
       postgres:
-        image: postgres:15
+        image: postgres:16
         env:
-          POSTGRES_DB: mydb
-          POSTGRES_USER: myuser
-          POSTGRES_PASSWORD: mypassword
+          POSTGRES_DB: coba
+          POSTGRES_USER: aditya
+          POSTGRES_PASSWORD: adityanur
         ports:
           - 5432:5432
         options: >-
