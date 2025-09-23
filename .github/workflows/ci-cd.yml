@@ -3,8 +3,6 @@ name: Django Monorepo CI/CD
 on:
   push:
     branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
 
 jobs:
   # === CI ===
@@ -21,8 +19,6 @@ jobs:
           POSTGRES_DB: coba
           POSTGRES_USER: aditya
           POSTGRES_PASSWORD: adityanur
-        ports:
-          - 5432:5432
         options: >-
           --health-cmd="pg_isready -U aditya -d coba"
           --health-interval=10s
@@ -34,22 +30,17 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
       - name: Install dependencies (global)
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
-
       - name: Wait for DB
         run: until pg_isready -h localhost -p 5432 -U aditya; do sleep 2; done
-
       - name: Run migrations
         run: python manage.py migrate --noinput
-
       - name: Run tests for ${{ matrix.service }}
         run: python manage.py test ${{ matrix.service }}
 
@@ -68,7 +59,6 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-
       - name: Build and push image ${{ matrix.service }}
         uses: docker/build-push-action@v5
         with:
@@ -84,17 +74,34 @@ jobs:
     strategy:
       matrix:
         service: [auth_service, order_service]
+      fail-fast: true
 
     steps:
       - uses: actions/checkout@v4
-      - name: Deploy ${{ matrix.service }} to Staging
+
+      # => load private key into ssh-agent
+      - name: Start ssh-agent and add key (Staging)
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}   # or SSH_PRIVATE_KEY_STAGING
+
+      # => add host key to known_hosts to avoid interactive prompt
+      - name: Add staging host to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "${{ secrets.STAGING_HOST }}" >> ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Deploy ${{ matrix.service }} to STAGING
+        env:
+          SSH_USER: ${{ secrets.SSH_USER }}
+          STAGING_HOST: ${{ secrets.STAGING_HOST }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
           echo "Deploying ${{ matrix.service }} to STAGING..."
-          # contoh pakai SSH remote server
-          ssh ${{ secrets.SSH_USER }}@${{ secrets.STAGING_HOST }} "
-            docker pull ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.service }}:latest &&
-            docker compose -f docker-compose.staging.yml up -d ${{ matrix.service }}
-          "
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes ${SSH_USER}@${STAGING_HOST} \
+            "docker pull ${DOCKERHUB_USERNAME}/${{ matrix.service }}:latest && \
+             docker compose -f /home/${SSH_USER}/docker-compose.staging.yml up -d ${{ matrix.service }}"
 
   # === CD: Deploy to Production ===
   deploy-production:
@@ -103,13 +110,29 @@ jobs:
     strategy:
       matrix:
         service: [auth_service, order_service]
+      fail-fast: true
 
     steps:
       - uses: actions/checkout@v4
-      - name: Deploy ${{ matrix.service }} to Production
+
+      - name: Start ssh-agent and add key (Production)
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}  # or SSH_PRIVATE_KEY_PRODUCTION
+
+      - name: Add production host to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "${{ secrets.PRODUCTION_HOST }}" >> ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Deploy ${{ matrix.service }} to PRODUCTION
+        env:
+          SSH_USER: ${{ secrets.SSH_USER }}
+          PRODUCTION_HOST: ${{ secrets.PRODUCTION_HOST }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
           echo "Deploying ${{ matrix.service }} to PRODUCTION..."
-          ssh user@production-server "
-            docker pull ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.service }}:latest &&
-            docker compose -f docker-compose.prod.yml up -d ${{ matrix.service }}
-          "
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes ${SSH_USER}@${PRODUCTION_HOST} \
+            "docker pull ${DOCKERHUB_USERNAME}/${{ matrix.service }}:latest && \
+             docker compose -f /home/${SSH_USER}/docker-compose.prod.yml up -d ${{ matrix.service }}"
