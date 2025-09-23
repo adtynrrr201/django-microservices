@@ -87,17 +87,16 @@ jobs:
           push: true
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/myproject:latest
           
-  # === CD: Deploy to Home Server ===
-  deploy:
+  # === CD: Deploy to Home Server via Tailscale ===
+  deploy-home:
+    needs: docker-build-and-push
     runs-on: ubuntu-latest
     strategy:
       matrix:
         service: [auth_service, order_service]
-      fail-fast: false
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       # Setup Tailscale
       - name: Setup Tailscale
@@ -105,109 +104,55 @@ jobs:
         with:
           authkey: ${{ secrets.TAILSCALE_AUTH_KEY }}
           hostname: github-actions-runner
+          tags: tag:ci
 
       - name: Wait for Tailscale connection
-        run: |
-          echo "Waiting for Tailscale to connect..."
-          sleep 15
-          echo "Tailscale status:"
-          tailscale status || echo "Tailscale status not available"
+        run: sleep 10
 
-      # **PERBAIKAN 1: Setup SSH dengan cara yang lebih reliable**
-      - name: Setup SSH using key file
-        run: |
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-          
-          # Write private key to file
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          
-          # Verify key format
-          echo "=== SSH Key Info ==="
-          ssh-keygen -l -f ~/.ssh/id_rsa || echo "Key format check failed"
-          
-          # Also add to agent for backup
-          eval "$(ssh-agent -s)"
-          ssh-add ~/.ssh/id_rsa
+      # Setup SSH agent
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
       - name: Add server to known_hosts
         run: |
-          IP="${{ secrets.HOME_SERVER_TAILSCALE_IP }}"
-          echo "Adding $IP to known_hosts"
-          
-          ssh-keygen -R "$IP" 2>/dev/null || true
-          ssh-keyscan -H "$IP" >> ~/.ssh/known_hosts 2>/dev/null || echo "Keyscan failed, continuing..."
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          ssh-keyscan -H "${{ secrets.HOME_SERVER_TAILSCALE_IP }}" >> ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
 
-      # **PERBAIKAN 2: Test SSH connection dengan identity file explicit**
-      - name: Test SSH connection
-        run: |
-          set +e  # Don't exit on error for testing
-          
-          IP="${{ secrets.HOME_SERVER_TAILSCALE_IP }}"
-          USER="${{ secrets.SSH_USER }}"
-          
-          echo "=== Testing SSH Connection ==="
-          echo "Trying to connect to $USER@$IP"
-          
-          # Method 1: With identity file
-          echo "Method 1: Using identity file"
-          ssh -o ConnectTimeout=15 -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -i ~/.ssh/id_rsa \
-            $USER@$IP "echo '✅ Identity file method successful'"
-          
-          if [ $? -ne 0 ]; then
-            echo "❌ Identity file method failed"
-            
-            # Method 2: With agent
-            echo "Method 2: Using SSH agent"
-            ssh -o ConnectTimeout=15 -o StrictHostKeyChecking=no \
-              $USER@$IP "echo '✅ Agent method successful'"
-              
-            if [ $? -ne 0 ]; then
-              echo "❌ All SSH methods failed"
-              echo "=== Debug Info ==="
-              echo "SSH User: $USER"
-              echo "IP: $IP"
-              echo "Key file contents (first line):"
-              head -1 ~/.ssh/id_rsa
-              exit 1
-            fi
-          fi
-          
-          set -e  # Re-enable exit on error
-
-      # **PERBAIKAN 3: Deploy dengan method yang lebih simple (tanpa heredoc)**
       - name: Deploy ${{ matrix.service }}
         env:
           SSH_USER: ${{ secrets.SSH_USER }}
           TAILSCALE_IP: ${{ secrets.HOME_SERVER_TAILSCALE_IP }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
-          echo "🚀 Deploying ${{ matrix.service }} to home server..."
-          echo "📡 Target: $SSH_USER@$TAILSCALE_IP"
-          
-          # Simple one-liner commands to avoid heredoc issues
-          ssh -o ConnectTimeout=30 -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa \
-            $SSH_USER@$TAILSCALE_IP \
-            "docker pull $DOCKERHUB_USERNAME/${{ matrix.service }}:latest"
-          
-          ssh -o ConnectTimeout=30 -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa \
-            $SSH_USER@$TAILSCALE_IP \
-            "cd /home/$SSH_USER && docker compose pull ${{ matrix.service }}"
-          
-          ssh -o ConnectTimeout=30 -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa \
-            $SSH_USER@$TAILSCALE_IP \
-            "cd /home/$SSH_USER && docker compose up -d ${{ matrix.service }}"
-          
-          ssh -o ConnectTimeout=30 -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa \
-            $SSH_USER@$TAILSCALE_IP \
-            "docker image prune -f"
-          
-          echo "✅ ${{ matrix.service }} deployment commands sent"
-
-      - name: Verify deployment
-        run: |
-          ssh -o ConnectTimeout=15 -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa \
-            ${{ secrets.SSH_USER }}@${{ secrets.HOME_SERVER_TAILSCALE_IP }} \
-            "docker ps --filter 'name=${{ matrix.service }}' --format 'table {{.Names}}\t{{.Status}}'"
+          SERVICE=${{ matrix.service }}
+          for attempt in {1..3}; do
+            echo "Deployment attempt $attempt for $SERVICE..."
+            if ssh -o ConnectTimeout=30 -o StrictHostKeyChecking=no $SSH_USER@$TAILSCALE_IP \
+               "set -e
+                echo '1. Pulling latest image...'
+                docker pull $DOCKERHUB_USERNAME/$SERVICE:latest
+                echo '2. Starting/updating service...'
+                cd /home/$SSH_USER
+                docker compose pull $SERVICE
+                docker compose up -d $SERVICE
+                echo '3. Cleanup...'
+                docker image prune -f
+                echo '4. Status...'
+                docker ps --filter 'name=$SERVICE' --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
+               "; then
+              echo "✅ Deployment succeeded"
+              break
+            else
+              echo "❌ Deployment attempt $attempt failed"
+              if [ $attempt -lt 3 ]; then
+                echo "Retrying in 10 seconds..."
+                sleep 10
+              else
+                exit 1
+              fi
+            fi
+          done
