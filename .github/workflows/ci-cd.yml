@@ -20,7 +20,7 @@ jobs:
           POSTGRES_USER: aditya
           POSTGRES_PASSWORD: adityanur
         options: >-
-          --health-cmd="pg_isready -U aditya -d coba"
+          --health-cmd="pg_isready -U aditya -d coba-coba"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=5
