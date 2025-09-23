@@ -26,21 +26,30 @@ jobs:
           --health-retries=5
 
     env:
-      DATABASE_URL: postgres://aditya:adityanur@localhost:5432/coba_coba
+      # ✅ gunakan host internal 'postgres' (nama servicenya)
+      DATABASE_URL: postgres://aditya:adityanur@postgres:5432/coba_coba
 
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
       - name: Install dependencies (global)
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
+
       - name: Wait for DB
-        run: until pg_isready -h localhost -p 5432 -U aditya; do sleep 2; done
+        run: |
+          until pg_isready -h postgres -p 5432 -U aditya; do
+            echo "Waiting for postgres..."
+            sleep 2
+          done
+
       - name: Run migrations
         run: python manage.py migrate --noinput
+
       - name: Run tests for ${{ matrix.service }}
         run: python manage.py test ${{ matrix.service }}
 
@@ -79,13 +88,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # => load private key into ssh-agent
       - name: Start ssh-agent and add key (Staging)
         uses: webfactory/ssh-agent@v0.9.0
         with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}   # or SSH_PRIVATE_KEY_STAGING
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      # => add host key to known_hosts to avoid interactive prompt
       - name: Add staging host to known_hosts
         run: |
           mkdir -p ~/.ssh
@@ -118,7 +125,7 @@ jobs:
       - name: Start ssh-agent and add key (Production)
         uses: webfactory/ssh-agent@v0.9.0
         with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}  # or SSH_PRIVATE_KEY_PRODUCTION
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
       - name: Add production host to known_hosts
         run: |
