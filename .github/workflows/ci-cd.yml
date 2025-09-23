@@ -87,7 +87,7 @@ jobs:
           push: true
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/myproject:latest
           
-   # === CD: Deploy to Home Server ===
+  # === CD: Deploy to Home Server ===
   deploy:
     runs-on: ubuntu-latest
     strategy:
@@ -99,12 +99,28 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # 🚨 PENTING: Setup Tailscale di runner GitHub Actions
+      - name: Setup Tailscale
+        uses: tailscale/github-action@v2
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTH_KEY }}
+          hostname: github-actions-runner
+          tags: tag:ci
+
+      - name: Wait for Tailscale connection
+        run: |
+          echo "Waiting for Tailscale to connect..."
+          sleep 10
+          tailscale status
+
       - name: Debug information
         run: |
           echo "Service: ${{ matrix.service }}"
           echo "SSH User: ${{ secrets.SSH_USER }}"
           echo "Tailscale IP: ${{ secrets.HOME_SERVER_TAILSCALE_IP }}"
           echo "DockerHub Username: ${{ secrets.DOCKERHUB_USERNAME }}"
+          echo "Current Tailscale IPs:"
+          tailscale ip || echo "Tailscale IP command not available"
 
       - name: Setup SSH agent
         uses: webfactory/ssh-agent@v0.9.0
@@ -128,43 +144,61 @@ jobs:
           ssh-keygen -R "$IP" 2>/dev/null || true
           
           # Add with retry logic
-          for i in {1..5}; do
+          for i in {1..10}; do
             if ssh-keyscan -H "$IP" >> ~/.ssh/known_hosts 2>/dev/null; then
               echo "✅ Successfully added $IP to known_hosts"
               break
             else
-              echo "❌ Attempt $i failed. Retrying in 3 seconds..."
-              sleep 3
+              echo "❌ Attempt $i failed. Retrying in 5 seconds..."
+              sleep 5
+            fi
+            if [ $i -eq 10 ]; then
+              echo "⚠️  Continuing without known_hosts verification"
             fi
           done
           
           chmod 644 ~/.ssh/known_hosts
 
-      - name: Test network connectivity
+      - name: Test Tailscale connectivity
         run: |
           IP="${{ secrets.HOME_SERVER_TAILSCALE_IP }}"
-          echo "Testing connectivity to $IP"
+          echo "Testing Tailscale connectivity to $IP"
           
-          # Test basic connectivity
-          if ping -c 2 -W 2 "$IP" &> /dev/null; then
-            echo "✅ Ping successful"
+          # Test dengan Tailscale (should work)
+          if tailscale ping -c 2 "$IP" 2>/dev/null; then
+            echo "✅ Tailscale ping successful"
           else
-            echo "⚠️  Ping failed (may be normal for Tailscale)"
+            echo "⚠️  Tailscale ping failed, but continuing..."
           fi
           
-          # Test SSH port
-          if nc -zv -w 5 "$IP" 22; then
-            echo "✅ SSH port (22) is open"
-          else
-            echo "❌ SSH port (22) is not accessible"
-            exit 1
-          fi
+          # Test SSH port dengan timeout lebih lama
+          echo "Testing SSH connection..."
+          timeout 30 bash -c "
+            until nc -zv -w 5 '$IP' 22; do
+              echo 'SSH port not ready, retrying in 3 seconds...'
+              sleep 3
+            done
+          " && echo "✅ SSH port is open" || echo "⚠️  SSH port test timeout, but continuing..."
 
       - name: Test SSH connection
         run: |
-          ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
-            ${{ secrets.SSH_USER }}@${{ secrets.HOME_SERVER_TAILSCALE_IP }} \
-            "echo '✅ SSH connection successful'"
+          set +e  # Jangan exit on error untuk testing
+          
+          echo "Testing SSH connection to ${{ secrets.HOME_SERVER_TAILSCALE_IP }}..."
+          
+          # Test dengan berbagai metode
+          for i in {1..5}; do
+            if ssh -o ConnectTimeout=15 -o StrictHostKeyChecking=no \
+              ${{ secrets.SSH_USER }}@${{ secrets.HOME_SERVER_TAILSCALE_IP }} \
+              "echo '✅ SSH connection successful (Attempt $i)'"; then
+              break
+            else
+              echo "❌ SSH attempt $i failed, retrying in 5 seconds..."
+              sleep 5
+            fi
+          done
+          
+          set -e  # Kembalikan exit on error
 
       - name: Deploy ${{ matrix.service }}
         env:
@@ -175,30 +209,47 @@ jobs:
           echo "🚀 Deploying ${{ matrix.service }} to home server..."
           echo "📡 Target: $SSH_USER@$TAILSCALE_IP"
           
-          # Gunakan heredoc untuk multi-line commands yang lebih clean
-          ssh -o ConnectTimeout=30 -o StrictHostKeyChecking=no \
-            $SSH_USER@$TAILSCALE_IP << EOF
-            set -e  # Exit on error
+          # Deploy dengan retry logic
+          for attempt in {1..3}; do
+            echo "Deployment attempt $attempt..."
             
-            echo "1. Pulling latest image for ${{ matrix.service }}..."
-            docker pull $DOCKERHUB_USERNAME/${{ matrix.service }}:latest
-            
-            echo "2. Starting/updating service..."
-            cd /home/$SSH_USER
-            docker compose pull ${{ matrix.service }}
-            docker compose up -d ${{ matrix.service }}
-            
-            echo "3. Cleaning up unused images..."
-            docker image prune -f
-            
-            echo "4. Checking service status..."
-            docker ps --filter "name=${{ matrix.service }}" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
-            
-            echo "✅ ${{ matrix.service }} deployment completed successfully"
+            if ssh -o ConnectTimeout=30 -o StrictHostKeyChecking=no \
+              $SSH_USER@$TAILSCALE_IP << 'EOF'; then
+              set -e
+              
+              echo "1. Pulling latest image for ${{ matrix.service }}..."
+              docker pull $DOCKERHUB_USERNAME/${{ matrix.service }}:latest
+              
+              echo "2. Starting/updating service..."
+              cd /home/$SSH_USER
+              docker compose pull ${{ matrix.service }}
+              docker compose up -d ${{ matrix.service }}
+              
+              echo "3. Cleaning up unused images..."
+              docker image prune -f
+              
+              echo "4. Checking service status..."
+              docker ps --filter "name=${{ matrix.service }}" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+              
+              echo "✅ ${{ matrix.service }} deployment completed successfully"
+              break
+            else
+              echo "❌ Deployment attempt $attempt failed"
+              if [ $attempt -lt 3 ]; then
+                echo "Retrying in 10 seconds..."
+                sleep 10
+              else
+                echo "All deployment attempts failed"
+                exit 1
+              fi
+            fi
+          done
 
       - name: Verify deployment
         run: |
-          ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
+          ssh -o ConnectTimeout=15 -o StrictHostKeyChecking=no \
             ${{ secrets.SSH_USER }}@${{ secrets.HOME_SERVER_TAILSCALE_IP }} \
-            "docker ps --filter 'name=${{ matrix.service }}' --format 'table {{.Names}}\t{{.Status}}' && \
-             docker logs ${{ matrix.service }} --tail 10 2>/dev/null || echo 'No logs available'"
+            "echo '=== Service Status ===' && \
+             docker ps --filter 'name=${{ matrix.service }}' --format 'table {{.Names}}\t{{.Status}}' && \
+             echo '=== Recent Logs ===' && \
+             docker logs ${{ matrix.service }} --tail 20 2>/dev/null || echo 'No logs available'"
