@@ -26,7 +26,7 @@ jobs:
           --health-retries=5
 
     env:
-      DATABASE_URL: postgres://aditya:adityanur@127.0.0.1:5432/coba-coba
+      DATABASE_URL: postgres://aditya:adityanur@localhost:5432/coba-coba
 
     steps:
       - uses: actions/checkout@v4
@@ -38,7 +38,7 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
       - name: Wait for DB
-        run: until pg_isready -h 127.0.0.1 -p 5432 -U aditya; do sleep 2; done
+        run: until pg_isready -h localhost -p 5432 -U aditya; do sleep 2; done
       - name: Run migrations
         run: python manage.py migrate --noinput
       - name: Run tests for ${{ matrix.service }}
