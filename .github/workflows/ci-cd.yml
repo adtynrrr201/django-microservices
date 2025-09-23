@@ -38,7 +38,7 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
       - name: Wait for DB
-        run: until pg_isready -h localhost -p 5432 -U aditya; do sleep 2; done
+        run: until pg_isready -h 192.168.0.1.106 -p 5432 -U aditya; do sleep 2; done
       - name: Run migrations
         run: python manage.py migrate --noinput
       - name: Run tests for ${{ matrix.service }}
