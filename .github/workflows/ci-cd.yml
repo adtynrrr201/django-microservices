@@ -16,17 +16,19 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_DB: coba
+          POSTGRES_DB: coba-coba
           POSTGRES_USER: aditya
           POSTGRES_PASSWORD: adityanur
+        ports:
+          - 5432:5432
         options: >-
-          --health-cmd="pg_isready -U aditya -d coba"
+          --health-cmd="pg_isready -U aditya -d coba-coba"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=5
 
     env:
-      DATABASE_URL: postgres://aditya:adityanur@localhost:5432/coba
+      DATABASE_URL: postgres://aditya:adityanur@localhost:5432/coba-coba
 
     steps:
       - uses: actions/checkout@v4
