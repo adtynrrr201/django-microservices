@@ -26,7 +26,7 @@ jobs:
           --health-retries=5
 
     env:
-      DATABASE_URL: postgres://aditya:adityanur@127.0.0.1:5432/coba
+      DATABASE_URL: postgres://aditya:adityanur@postgres:5432/coba
 
     steps:
       - uses: actions/checkout@v4
