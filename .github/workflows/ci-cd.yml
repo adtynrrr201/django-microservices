@@ -97,7 +97,6 @@ jobs:
       # Tambahkan host ke known_hosts
       - name: Add home server to known_hosts
         run: |
-          mkdir -p ~/.ssh
           ssh-keyscan -p 22 -H "${{ secrets.HOME_SERVER_HOST }}" >> ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
 
