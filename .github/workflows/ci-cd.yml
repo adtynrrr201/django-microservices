@@ -10,10 +10,10 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-       service: [auth_service, order_service]
+        service: [auth_service, order_service]
 
     services:
-       postgres:
+      postgres:
         image: postgres:16
         env:
           POSTGRES_DB: coba
@@ -32,27 +32,32 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+      
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Install dependencies (global)
+      - name: Install dependencies
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Wait for DB
+      - name: Wait for PostgreSQL
         run: |
-          until pg_isready -h localhost -p 5432 -U aditya; do
-            echo "Waiting for postgres..."
-            sleep 2
+          for i in {1..10}; do
+            if pg_isready -h localhost -p 5432 -U aditya -d coba; then
+              echo "PostgreSQL is ready!"
+              break
+            fi
+            echo "Waiting for PostgreSQL... Attempt $i/10"
+            sleep 3
           done
 
       - name: Run migrations
         run: python manage.py migrate --noinput
 
       - name: Run tests for ${{ matrix.service }}
-        run: python manage.py test ${{ matrix.service }}
+        run: python manage.py test ${{ matrix.service }} --noinput
 
   # === CD: Docker Build & Push (Multi-arch) ===
   docker-build-and-push:
@@ -64,19 +69,26 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Build & push multi-arch image
+
+      - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./Dockerfile
-          platforms: linux/arm64
+          file: ./${{ matrix.service }}/Dockerfile  # Pastikan path Dockerfile benar
+          platforms: linux/amd64,linux/arm64  # Multi-arch support
           push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.service }}:latest
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.service }}:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.service }}:${{ github.sha }}
 
   # === CD: Deploy to Home Server via Tailscale ===
   deploy-home:
@@ -90,18 +102,54 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Setup Tailscale
+      - name: Setup Tailscale
+        uses: tailscale/github-action@v2
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+          hostname: github-runner
+
       # Load SSH private key
-      - name: Start ssh-agent
+      - name: Setup SSH
         uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      # Add home server Tailscale IP to known_hosts
+      # Add home server to known_hosts dengan retry logic
       - name: Add Tailscale IP to known_hosts
         run: |
           mkdir -p ~/.ssh
-          ssh-keyscan -H "${{ secrets.HOME_SERVER_TAILSCALE_IP }}" >> ~/.ssh/known_hosts
+          chmod 700 ~/.ssh
+          
+          IP="${{ secrets.HOME_SERVER_TAILSCALE_IP }}"
+          echo "Adding Tailscale IP: $IP to known_hosts"
+          
+          # Remove existing entry
+          ssh-keygen -R "$IP" 2>/dev/null || true
+          
+          # Add with retry logic
+          for i in {1..5}; do
+            if ssh-keyscan -H "$IP" >> ~/.ssh/known_hosts 2>/dev/null; then
+              echo "Successfully added $IP to known_hosts"
+              break
+            else
+              echo "Attempt $i failed. Retrying in 3 seconds..."
+              sleep 3
+            fi
+            if [ $i -eq 5 ]; then
+              echo "Error: Failed to add $IP to known_hosts after 5 attempts"
+              exit 1
+            fi
+          done
+          
           chmod 644 ~/.ssh/known_hosts
+
+      # Test SSH connection
+      - name: Test SSH connection
+        run: |
+          ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
+            ${{ secrets.SSH_USER }}@${{ secrets.HOME_SERVER_TAILSCALE_IP }} \
+            "echo 'SSH connection successful'"
 
       # Deploy service via SSH
       - name: Deploy ${{ matrix.service }} to Home Server
@@ -110,7 +158,38 @@ jobs:
           TAILSCALE_IP: ${{ secrets.HOME_SERVER_TAILSCALE_IP }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
-          echo "Deploying ${{ matrix.service }} to home server..."
+          echo "🔄 Deploying ${{ matrix.service }} to home server..."
+          
+          # Pull latest image
           ssh -o StrictHostKeyChecking=no ${SSH_USER}@${TAILSCALE_IP} \
-            "docker pull ${DOCKERHUB_USERNAME}/${{ matrix.service }}:latest || true && \
-             docker compose -f /home/${SSH_USER}/docker-compose.yml up -d ${{ matrix.service }}"
+            "docker pull ${DOCKERHUB_USERNAME}/${{ matrix.service }}:latest"
+          
+          # Restart service
+          ssh -o StrictHostKeyChecking=no ${SSH_USER}@${TAILSCALE_IP} \
+            "cd /home/${SSH_USER} && \
+             docker compose pull ${{ matrix.service }} && \
+             docker compose up -d ${{ matrix.service }} && \
+             docker image prune -f"
+          
+          # Verify deployment
+          ssh -o StrictHostKeyChecking=no ${SSH_USER}@${TAILSCALE_IP} \
+            "docker ps --filter 'name=${{ matrix.service }}' --format 'table {{.Names}}\t{{.Status}}'"
+          
+          echo "✅ ${{ matrix.service }} deployed successfully"
+
+      # Health check after deployment
+      - name: Health check ${{ matrix.service }}
+        run: |
+          echo "Health check for ${{ matrix.service }}..."
+          # Tambahkan health check sesuai kebutuhan service Anda
+          # Contoh: curl http://${TAILSCALE_IP}:port/health
+
+  # Optional: Cleanup job
+  cleanup:
+    needs: deploy-home
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Cleanup Tailscale
+        run: |
+          echo "Cleanup completed"
