@@ -83,13 +83,10 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./${{ matrix.service }}/Dockerfile  # Pastikan path Dockerfile benar
-          platforms: linux/amd64,linux/arm64  # Multi-arch support
+          file: ./Dockerfile
           push: true
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.service }}:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.service }}:${{ github.sha }}
-
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/myproject:latest
+          
   # === CD: Deploy to Home Server via Tailscale ===
   deploy-home:
     needs: docker-build-and-push
