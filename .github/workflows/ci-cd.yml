@@ -1,26 +1,24 @@
-name: Django Monorepo CI/CD via Tailscale
+name: Django Monorepo CI/CD (Home Server via Tailscale)
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
 
 jobs:
-  # === CI ===
+  # === CI: Build & Test ===
   build-and-test:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-       service: [auth_service, order_service]
+        service: [auth_service, order_service]
 
     services:
-       postgres:
+      postgres:
         image: postgres:16
         env:
           POSTGRES_DB: coba
           POSTGRES_USER: aditya
           POSTGRES_PASSWORD: adityanur
-        ports:
-          - 5432:5432
         options: >-
           --health-cmd="pg_isready -U aditya -d coba"
           --health-interval=10s
@@ -35,26 +33,19 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      - name: Install dependencies (global)
+      - name: Install dependencies
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
-
-      - name: Wait for DB
+      - name: Wait for Postgres
         run: |
-          until pg_isready -h localhost -p 5432 -U aditya; do
-            echo "Waiting for postgres..."
-            sleep 2
-          done
-
+          until pg_isready -h localhost -p 5432 -U aditya; do sleep 2; done
       - name: Run migrations
         run: python manage.py migrate --noinput
-
       - name: Run tests for ${{ matrix.service }}
         run: python manage.py test ${{ matrix.service }}
 
-  # === CD: Docker Build & Push ===
+  # === CD: Docker Build & Push (Multi-arch) ===
   docker-build-and-push:
     needs: build-and-test
     runs-on: ubuntu-latest
@@ -69,16 +60,17 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Build and push image ${{ matrix.service }}
+      - name: Build & push multi-arch image
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.service }}:latest
 
-  # === CD: Deploy via Tailscale SSH ===
-  deploy-home-server:
+  # === CD: Deploy to Home Server via Tailscale ===
+  deploy-home:
     needs: docker-build-and-push
     runs-on: ubuntu-latest
     strategy:
@@ -88,24 +80,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Install Tailscale client
-      - name: Install Tailscale
-        run: |
-          curl -fsSL https://tailscale.com/install.sh | sh
-          sudo tailscale up --authkey ${{ secrets.TAILSCALE_AUTH_KEY }}
-
-      # Setup SSH key
-      - name: Setup SSH Agent
+      # Load SSH private key
+      - name: Start ssh-agent
         uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
+      # Add home server Tailscale IP to known_hosts
+      - name: Add Tailscale IP to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "${{ secrets.HOME_TAILSCALE_IP }}" >> ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      # Deploy service via SSH
       - name: Deploy ${{ matrix.service }} to Home Server
         env:
-          SSH_USER: ${{ secrets.SSH_USER }}
-          TAILSCALE_IP: ${{ secrets.HOME_SERVER_TAILSCALE_IP }}
+          SSH_USER: ${{ secrets.HOME_SSH_USER }}
+          TAILSCALE_IP: ${{ secrets.HOME_TAILSCALE_IP }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
+          echo "Deploying ${{ matrix.service }} to home server..."
           ssh -o StrictHostKeyChecking=no ${SSH_USER}@${TAILSCALE_IP} \
             "docker pull ${DOCKERHUB_USERNAME}/${{ matrix.service }}:latest && \
              docker compose -f /home/${SSH_USER}/docker-compose.yml up -d ${{ matrix.service }}"
