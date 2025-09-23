@@ -8,7 +8,7 @@ services:
     depends_on:
       - db
     environment:
-      - DB_NAME=coba
+      - DB_NAME=coba-coba
       - DB_USER=aditya
       - DB_PASSWORD=adityanur
       - DB_HOST=db
