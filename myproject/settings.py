@@ -81,7 +81,7 @@ DATABASES = {
         'NAME': 'coba-coba',        # ganti dengan nama database kamu
         'USER': 'aditya',      # ganti dengan user PostgreSQL kamu
         'PASSWORD': 'adityanur', # ganti dengan password
-        'HOST': 'localhost',
+        'HOST': '192.168.0.106',
         'PORT': '5432',
     }
 }
