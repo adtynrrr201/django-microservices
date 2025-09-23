@@ -195,3 +195,10 @@ jobs:
             docker ps --filter "name=${{ matrix.service }}" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
             
             echo "✅ ${{ matrix.service }} deployment completed successfully"
+
+      - name: Verify deployment
+        run: |
+          ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
+            ${{ secrets.SSH_USER }}@${{ secrets.HOME_SERVER_TAILSCALE_IP }} \
+            "docker ps --filter 'name=${{ matrix.service }}' --format 'table {{.Names}}\t{{.Status}}' && \
+             docker logs ${{ matrix.service }} --tail 10 2>/dev/null || echo 'No logs available'"
