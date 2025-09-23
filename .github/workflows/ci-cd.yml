@@ -91,7 +91,7 @@ jobs:
         run: |
           echo "Deploying ${{ matrix.service }} to STAGING..."
           # contoh pakai SSH remote server
-          ssh user@staging-server "
+          ssh ${{ secrets.SSH_USER }}@${{ secrets.STAGING_HOST }} "
             docker pull ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.service }}:latest &&
             docker compose -f docker-compose.staging.yml up -d ${{ matrix.service }}
           "
