@@ -87,9 +87,8 @@ jobs:
           push: true
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/myproject:latest
           
-  # === CD: Deploy to Home Server via Tailscale ===
-  deploy-home:
-    needs: docker-build-and-push
+   # === CD: Deploy to Home Server ===
+  deploy:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -97,29 +96,33 @@ jobs:
       fail-fast: false
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      # Setup Tailscale
-      - name: Setup Tailscale
-        uses: tailscale/github-action@v2
-        with:
-          authkey: ${{ secrets.TAILSCALE_AUTH_KEY }}
-          hostname: github-runner
+      - name: Debug information
+        run: |
+          echo "Service: ${{ matrix.service }}"
+          echo "SSH User: ${{ secrets.SSH_USER }}"
+          echo "Tailscale IP: ${{ secrets.HOME_SERVER_TAILSCALE_IP }}"
+          echo "DockerHub Username: ${{ secrets.DOCKERHUB_USERNAME }}"
 
-      # Load SSH private key
-      - name: Setup SSH
+      - name: Setup SSH agent
         uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      # Add home server to known_hosts dengan retry logic
-      - name: Add Tailscale IP to known_hosts
+      - name: Verify SSH key loaded
+        run: |
+          echo "Loaded SSH keys:"
+          ssh-add -l
+
+      - name: Add server to known_hosts
         run: |
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
           
           IP="${{ secrets.HOME_SERVER_TAILSCALE_IP }}"
-          echo "Adding Tailscale IP: $IP to known_hosts"
+          echo "Adding $IP to known_hosts"
           
           # Remove existing entry
           ssh-keygen -R "$IP" 2>/dev/null || true
@@ -127,28 +130,68 @@ jobs:
           # Add with retry logic
           for i in {1..5}; do
             if ssh-keyscan -H "$IP" >> ~/.ssh/known_hosts 2>/dev/null; then
-              echo "Successfully added $IP to known_hosts"
+              echo "✅ Successfully added $IP to known_hosts"
               break
             else
-              echo "Attempt $i failed. Retrying in 3 seconds..."
+              echo "❌ Attempt $i failed. Retrying in 3 seconds..."
               sleep 3
-            fi
-            if [ $i -eq 5 ]; then
-              echo "Error: Failed to add $IP to known_hosts after 5 attempts"
-              exit 1
             fi
           done
           
           chmod 644 ~/.ssh/known_hosts
 
-      # Deploy via Tailscale SSH
-      - name: Deploy ${{ matrix.service }} to Home Server
+      - name: Test network connectivity
+        run: |
+          IP="${{ secrets.HOME_SERVER_TAILSCALE_IP }}"
+          echo "Testing connectivity to $IP"
+          
+          # Test basic connectivity
+          if ping -c 2 -W 2 "$IP" &> /dev/null; then
+            echo "✅ Ping successful"
+          else
+            echo "⚠️  Ping failed (may be normal for Tailscale)"
+          fi
+          
+          # Test SSH port
+          if nc -zv -w 5 "$IP" 22; then
+            echo "✅ SSH port (22) is open"
+          else
+            echo "❌ SSH port (22) is not accessible"
+            exit 1
+          fi
+
+      - name: Test SSH connection
+        run: |
+          ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
+            ${{ secrets.SSH_USER }}@${{ secrets.HOME_SERVER_TAILSCALE_IP }} \
+            "echo '✅ SSH connection successful'"
+
+      - name: Deploy ${{ matrix.service }}
         env:
           SSH_USER: ${{ secrets.SSH_USER }}
           TAILSCALE_IP: ${{ secrets.HOME_SERVER_TAILSCALE_IP }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
-          echo "Deploying ${{ matrix.service }} to home server..."
-          ssh -o StrictHostKeyChecking=yes ${SSH_USER}@${HOME_SERVER_TAILSCALE_IP} \
-            "docker pull ${DOCKERHUB_USERNAME}/${{ matrix.service }}:latest && \
-             docker compose -f /home/${SSH_USER}/docker-compose.yml up -d ${{ matrix.service }}"
+          echo "🚀 Deploying ${{ matrix.service }} to home server..."
+          echo "📡 Target: $SSH_USER@$TAILSCALE_IP"
+          
+          # Gunakan heredoc untuk multi-line commands yang lebih clean
+          ssh -o ConnectTimeout=30 -o StrictHostKeyChecking=no \
+            $SSH_USER@$TAILSCALE_IP << EOF
+            set -e  # Exit on error
+            
+            echo "1. Pulling latest image for ${{ matrix.service }}..."
+            docker pull $DOCKERHUB_USERNAME/${{ matrix.service }}:latest
+            
+            echo "2. Starting/updating service..."
+            cd /home/$SSH_USER
+            docker compose pull ${{ matrix.service }}
+            docker compose up -d ${{ matrix.service }}
+            
+            echo "3. Cleaning up unused images..."
+            docker image prune -f
+            
+            echo "4. Checking service status..."
+            docker ps --filter "name=${{ matrix.service }}" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+            
+            echo "✅ ${{ matrix.service }} deployment completed successfully"
