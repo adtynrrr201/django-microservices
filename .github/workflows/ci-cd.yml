@@ -16,7 +16,7 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_DB: coba
+          POSTGRES_DB: coba-coba
           POSTGRES_USER: aditya
           POSTGRES_PASSWORD: adityanur
         options: >-
@@ -26,8 +26,8 @@ jobs:
           --health-retries=5
 
     env:
-      DATABASE_URL: postgres://aditya:adityanur@localhost:5432/coba
-      
+      DATABASE_URL: postgres://aditya:adityanur@localhost:5432/coba-coba
+
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
