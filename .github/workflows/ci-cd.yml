@@ -141,13 +141,6 @@ jobs:
           
           chmod 644 ~/.ssh/known_hosts
 
-      # Test SSH connection
-      - name: Test SSH connection
-        run: |
-          ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
-            ${{ secrets.SSH_USER }}@${{ secrets.HOME_SERVER_TAILSCALE_IP }} \
-            "echo 'SSH connection successful'"
-
       # Deploy service via SSH
       - name: Deploy ${{ matrix.service }} to Home Server
         env:
@@ -155,38 +148,7 @@ jobs:
           TAILSCALE_IP: ${{ secrets.HOME_SERVER_TAILSCALE_IP }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
-          echo "🔄 Deploying ${{ matrix.service }} to home server..."
-          
-          # Pull latest image
+          echo "Deploying ${{ matrix.service }} to home server..."
           ssh -o StrictHostKeyChecking=no ${SSH_USER}@${TAILSCALE_IP} \
-            "docker pull ${DOCKERHUB_USERNAME}/${{ matrix.service }}:latest"
-          
-          # Restart service
-          ssh -o StrictHostKeyChecking=no ${SSH_USER}@${TAILSCALE_IP} \
-            "cd /home/${SSH_USER} && \
-             docker compose pull ${{ matrix.service }} && \
-             docker compose up -d ${{ matrix.service }} && \
-             docker image prune -f"
-          
-          # Verify deployment
-          ssh -o StrictHostKeyChecking=no ${SSH_USER}@${TAILSCALE_IP} \
-            "docker ps --filter 'name=${{ matrix.service }}' --format 'table {{.Names}}\t{{.Status}}'"
-          
-          echo "✅ ${{ matrix.service }} deployed successfully"
-
-      # Health check after deployment
-      - name: Health check ${{ matrix.service }}
-        run: |
-          echo "Health check for ${{ matrix.service }}..."
-          # Tambahkan health check sesuai kebutuhan service Anda
-          # Contoh: curl http://${TAILSCALE_IP}:port/health
-
-  # Optional: Cleanup job
-  cleanup:
-    needs: deploy-home
-    runs-on: ubuntu-latest
-    if: always()
-    steps:
-      - name: Cleanup Tailscale
-        run: |
-          echo "Cleanup completed"
+            "docker pull ${DOCKERHUB_USERNAME}/${{ matrix.service }}:latest && \
+             docker compose -f /home/${SSH_USER}/docker-compose.yml up -d ${{ matrix.service }}"
