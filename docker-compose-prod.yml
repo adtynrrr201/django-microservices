@@ -1,0 +1,49 @@
+version: "3.9"
+
+services:
+  auth_service:
+    image: ${DOCKERHUB_USERNAME}/auth_service:latest
+    container_name: auth_service_prod
+    restart: always
+    env_file:
+      - ./envs/prod/auth.env
+    depends_on:
+      - postgres
+    ports:
+      - "9001:8000"
+    networks:
+      - backend
+
+  order_service:
+    image: ${DOCKERHUB_USERNAME}/order_service:latest
+    container_name: order_service_prod
+    restart: always
+    env_file:
+      - ./envs/prod/order.env
+    depends_on:
+      - postgres
+    ports:
+      - "9002:8000"
+    networks:
+      - backend
+
+  postgres:
+    image: postgres:16
+    container_name: postgres_prod
+    restart: always
+    environment:
+      POSTGRES_DB: coba
+      POSTGRES_USER: aditya
+      POSTGRES_PASSWORD: adityanur
+    volumes:
+      - pgdata_prod:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - backend
+
+volumes:
+  pgdata_prod:
+
+networks:
+  backend:
