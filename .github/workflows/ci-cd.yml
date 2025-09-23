@@ -78,98 +78,76 @@ jobs:
           push: true
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.service }}:latest
 
-# === CD: Deploy to Home Server via Tailscale ===
-deploy-home:
-  needs: docker-build-and-push
-  runs-on: ubuntu-latest
-  strategy:
-    matrix:
-      service: [auth_service, order_service]
-    fail-fast: false
+  # === CD: Deploy to Home Server ===
+  deploy-production:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [auth_service, order_service]
+      fail-fast: false
 
-  steps:
-    - uses: actions/checkout@v4
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    # Method 1: Using ssh-agent (recommended)
-    - name: Setup SSH Agent
-      uses: webfactory/ssh-agent@v0.9.0
-      with:
-        ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+      - name: Debug information
+        run: |
+          echo "Deploying service: ${{ matrix.service }}"
+          echo "SSH User: ${{ secrets.SSH_USER }}"
+          echo "Server IP: ${{ secrets.HOME_SERVER_TAILSCALE_IP }}"
 
-    - name: Debug SSH Keys
-      run: |
-        echo "=== Debug SSH Setup ==="
-        echo "SSH User: ${{ secrets.SSH_USER }}"
-        echo "Server IP: ${{ secrets.HOME_SERVER_TAILSCALE_IP }}"
-        echo "Loaded keys:"
-        ssh-add -l
-        echo "SSH Agent PID: $SSH_AGENT_PID"
-        echo "SSH Auth Socket: $SSH_AUTH_SOCK"
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-    # Add to known_hosts
-    - name: Add to known_hosts
-      run: |
-        mkdir -p ~/.ssh
-        chmod 700 ~/.ssh
-        
-        IP="${{ secrets.HOME_SERVER_TAILSCALE_IP }}"
-        echo "Adding $IP to known_hosts"
-        
-        ssh-keygen -R "$IP" 2>/dev/null || true
-        
-        for i in {1..5}; do
-          if ssh-keyscan -H "$IP" >> ~/.ssh/known_hosts 2>/dev/null; then
-            echo "Successfully added $IP"
-            break
-          fi
-          echo "Attempt $i failed, retrying..."
-          sleep 2
-        done
-        
-        chmod 644 ~/.ssh/known_hosts
-
-    # Test connection dengan multiple methods
-    - name: Test SSH Connection
-      run: |
-        set +e  # Don't exit on error for testing
-        
-        echo "=== Testing SSH Connection ==="
-        
-        # Method 1: With agent
-        echo "Method 1: Using SSH agent"
-        ssh -o ConnectTimeout=15 -o StrictHostKeyChecking=no \
-          -o PasswordAuthentication=no \
-          ${{ secrets.SSH_USER }}@${{ secrets.HOME_SERVER_TAILSCALE_IP }} \
-          "echo 'Agent method successful'"
-        
-        if [ $? -ne 0 ]; then
-          echo "Agent method failed, trying identity file method..."
+      - name: Add to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
           
-          # Method 2: Using identity file
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > /tmp/deploy_key
-          chmod 600 /tmp/deploy_key
+          IP="${{ secrets.HOME_SERVER_TAILSCALE_IP }}"
+          echo "Adding $IP to known_hosts"
+          
+          ssh-keygen -R "$IP" 2>/dev/null || true
+          
+          for i in {1..5}; do
+            if ssh-keyscan -H "$IP" >> ~/.ssh/known_hosts 2>/dev/null; then
+              echo "Successfully added $IP to known_hosts"
+              break
+            else
+              echo "Attempt $i failed. Retrying in 3 seconds..."
+              sleep 3
+            fi
+          done
+          
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Test SSH connection
+        run: |
+          ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
+            ${{ secrets.SSH_USER }}@${{ secrets.HOME_SERVER_TAILSCALE_IP }} \
+            "echo 'SSH connection successful'"
+
+      - name: Deploy service
+        env:
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SERVER_IP: ${{ secrets.HOME_SERVER_TAILSCALE_IP }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: |
+          echo "Deploying ${{ matrix.service }} to production..."
           
           ssh -o ConnectTimeout=15 -o StrictHostKeyChecking=no \
-            -o PasswordAuthentication=no \
-            -i /tmp/deploy_key \
-            ${{ secrets.SSH_USER }}@${{ secrets.HOME_SERVER_TAILSCALE_IP }} \
-            "echo 'Identity file method successful'"
-        fi
-        
-        set -e  # Re-enable exit on error
+            $SSH_USER@$SERVER_IP \
+            "docker pull $DOCKERHUB_USERNAME/${{ matrix.service }}:latest && \
+             cd /home/$SSH_USER && \
+             docker compose pull ${{ matrix.service }} && \
+             docker compose up -d ${{ matrix.service }} && \
+             docker image prune -f && \
+             echo 'Deployment successful'"
 
-    # Deploy service
-    - name: Deploy ${{ matrix.service }}
-      env:
-        SSH_USER: ${{ secrets.SSH_USER }}
-        SERVER_IP: ${{ secrets.HOME_SERVER_TAILSCALE_IP }}
-        DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-      run: |
-        echo "🚀 Deploying ${{ matrix.service }}..."
-        
-        ssh -o ConnectTimeout=15 -o StrictHostKeyChecking=no \
-          ${SSH_USER}@${SERVER_IP} \
-          "docker pull ${DOCKERHUB_USERNAME}/${{ matrix.service }}:latest && \
-           cd /home/${SSH_USER} && \
-           docker compose up -d ${{ matrix.service }} && \
-           echo '✅ Deployment successful'"
+      - name: Verify deployment
+        run: |
+          ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no \
+            ${{ secrets.SSH_USER }}@${{ secrets.HOME_SERVER_TAILSCALE_IP }} \
+            "docker ps --filter 'name=${{ matrix.service }}' --format 'table {{.Names}}\t{{.Status}}'"
