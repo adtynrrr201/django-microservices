@@ -149,6 +149,6 @@ jobs:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
           echo "Deploying ${{ matrix.service }} to home server..."
-          ssh -o StrictHostKeyChecking=yes ${SSH_USER}@${TAILSCALE_IP} \
+          ssh -o StrictHostKeyChecking=yes ${SSH_USER}@${HOME_SERVER_TAILSCALE_IP} \
             "docker pull ${DOCKERHUB_USERNAME}/${{ matrix.service }}:latest && \
              docker compose -f /home/${SSH_USER}/docker-compose.yml up -d ${{ matrix.service }}"
