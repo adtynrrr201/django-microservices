@@ -141,7 +141,7 @@ jobs:
           
           chmod 644 ~/.ssh/known_hosts
 
-      # Deploy service via SSH
+      # Deploy via Tailscale SSH
       - name: Deploy ${{ matrix.service }} to Home Server
         env:
           SSH_USER: ${{ secrets.SSH_USER }}
@@ -149,6 +149,6 @@ jobs:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
           echo "Deploying ${{ matrix.service }} to home server..."
-          ssh -o StrictHostKeyChecking=no ${SSH_USER}@${TAILSCALE_IP} \
+          ssh -o StrictHostKeyChecking=yes ${SSH_USER}@${TAILSCALE_IP} \
             "docker pull ${DOCKERHUB_USERNAME}/${{ matrix.service }}:latest && \
              docker compose -f /home/${SSH_USER}/docker-compose.yml up -d ${{ matrix.service }}"
