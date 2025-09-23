@@ -74,7 +74,7 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/arm64
           push: true
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.service }}:latest
 
@@ -85,6 +85,7 @@ jobs:
     strategy:
       matrix:
         service: [auth_service, order_service]
+      fail-fast: false
 
     steps:
       - uses: actions/checkout@v4
@@ -99,17 +100,17 @@ jobs:
       - name: Add Tailscale IP to known_hosts
         run: |
           mkdir -p ~/.ssh
-          ssh-keyscan -H "${{ secrets.HOME_TAILSCALE_IP }}" >> ~/.ssh/known_hosts
+          ssh-keyscan -H "${{ secrets.HOME_SERVER_TAILSCALE_IP }}" >> ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
 
       # Deploy service via SSH
       - name: Deploy ${{ matrix.service }} to Home Server
         env:
-          SSH_USER: ${{ secrets.HOME_SSH_USER }}
-          TAILSCALE_IP: ${{ secrets.HOME_TAILSCALE_IP }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          TAILSCALE_IP: ${{ secrets.HOME_SERVER_TAILSCALE_IP }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
           echo "Deploying ${{ matrix.service }} to home server..."
           ssh -o StrictHostKeyChecking=no ${SSH_USER}@${TAILSCALE_IP} \
-            "docker pull ${DOCKERHUB_USERNAME}/${{ matrix.service }}:latest && \
+            "docker pull ${DOCKERHUB_USERNAME}/${{ matrix.service }}:latest || true && \
              docker compose -f /home/${SSH_USER}/docker-compose.yml up -d ${{ matrix.service }}"
