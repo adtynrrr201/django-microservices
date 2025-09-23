@@ -27,7 +27,7 @@ jobs:
 
     env:
       DATABASE_URL: postgres://aditya:adityanur@localhost:5432/coba
-
+      
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
