@@ -1,17 +1,17 @@
-name: CI/CD Multi-Service
+name: Monorepo CI/CD
 
 on:
   push:
     branches: [ "main" ]
 
 jobs:
-  # --- CI: Build & Test semua service ---
+  # --- CI: Build & Test ---
   build-test:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: true
       matrix:
-        service: [auth_service, order_service, myproject]   # daftar service
+        service: [auth_service, order_service]   # daftar service di monorepo
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,7 +28,7 @@ jobs:
       - name: Run tests
         run: |
           cd ${{ matrix.service }}
-          pytest   # atau manage.py test untuk Django
+          pytest || python manage.py test
 
   # --- Deploy Staging ---
   deploy-staging:
@@ -37,22 +37,22 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        service: [auth_service, order_service, myproject]
+        service: [auth_service, order_service]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Login DockerHub
+      - name: Docker Login
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build & Push image (staging)
+      - name: Build & Push (staging)
         uses: docker/build-push-action@v5
         with:
-          context: ${{ matrix.service }}
-          file: ${{ matrix.service }}/Dockerfile
+          context: ./${{ matrix.service }}
+          file: ./${{ matrix.service }}/Dockerfile
           push: true
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.service }}:staging
 
@@ -63,21 +63,21 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        service: [auth_service, order_service, myproject]
+        service: [auth_service, order_service]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Login DockerHub
+      - name: Docker Login
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build & Push image (production)
+      - name: Build & Push (production)
         uses: docker/build-push-action@v5
         with:
-          context: ${{ matrix.service }}
-          file: ${{ matrix.service }}/Dockerfile
+          context: ./${{ matrix.service }}
+          file: ./${{ matrix.service }}/Dockerfile
           push: true
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.service }}:latest
