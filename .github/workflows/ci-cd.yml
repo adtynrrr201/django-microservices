@@ -1,4 +1,4 @@
-name: Django Monorepo CI/CD
+name: Django Monorepo CI/CD via Tailscale
 
 on:
   push:
@@ -77,8 +77,8 @@ jobs:
           push: true
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.service }}:latest
 
-  # === CD: Deploy to Staging ===
-  deploy-home:
+  # === CD: Deploy via Tailscale SSH ===
+  deploy-home-server:
     needs: docker-build-and-push
     runs-on: ubuntu-latest
     strategy:
@@ -88,26 +88,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Setup SSH Agent
-      - name: Start ssh-agent and add key
+      # Install Tailscale client
+      - name: Install Tailscale
+        run: |
+          curl -fsSL https://tailscale.com/install.sh | sh
+          sudo tailscale up --authkey ${{ secrets.TAILSCALE_AUTH_KEY }}
+
+      # Setup SSH key
+      - name: Setup SSH Agent
         uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      # Tambahkan host ke known_hosts
-      - name: Add home server to known_hosts
-        run: |
-          ssh-keyscan -p 22 -H "${{ secrets.HOME_SERVER_HOST }}" >> ~/.ssh/known_hosts
-          chmod 644 ~/.ssh/known_hosts
-
-      # Deploy service ke home server
       - name: Deploy ${{ matrix.service }} to Home Server
         env:
           SSH_USER: ${{ secrets.SSH_USER }}
-          HOME_SERVER_HOST: ${{ secrets.HOME_SERVER_HOST }}
+          TAILSCALE_IP: ${{ secrets.HOME_SERVER_TAILSCALE_IP }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
-          echo "Deploying ${{ matrix.service }} to HOME SERVER..."
-          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes ${SSH_USER}@${HOME_SERVER_HOST} \
+          ssh -o StrictHostKeyChecking=no ${SSH_USER}@${TAILSCALE_IP} \
             "docker pull ${DOCKERHUB_USERNAME}/${{ matrix.service }}:latest && \
              docker compose -f /home/${SSH_USER}/docker-compose.yml up -d ${{ matrix.service }}"
