@@ -10,24 +10,25 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        service: [auth_service, order_service]
+       service: [auth_service, order_service]
 
     services:
-      postgres:
+       postgres:
         image: postgres:16
         env:
-          POSTGRES_DB: coba_coba
+          POSTGRES_DB: coba
           POSTGRES_USER: aditya
           POSTGRES_PASSWORD: adityanur
+        ports:
+          - 5432:5432
         options: >-
-          --health-cmd="pg_isready -U aditya -d coba_coba"
+          --health-cmd="pg_isready -U aditya -d coba"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=5
 
     env:
-      # ✅ gunakan host internal 'postgres' (nama servicenya)
-      DATABASE_URL: postgres://aditya:adityanur@postgres:5432/coba_coba
+      DATABASE_URL: postgres://aditya:adityanur@localhost:5432/coba
 
     steps:
       - uses: actions/checkout@v4
