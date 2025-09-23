@@ -87,17 +87,16 @@ jobs:
           push: true
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/myproject:latest
           
- # === CD: Deploy to Home Server ===
-  deploy:
+   # === CD: Deploy to Home Server via Tailscale ===
+  deploy-home:
+    needs: docker-build-and-push
     runs-on: ubuntu-latest
     strategy:
       matrix:
         service: [auth_service, order_service]
-      fail-fast: false
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       # Setup Tailscale
       - name: Setup Tailscale
@@ -105,110 +104,44 @@ jobs:
         with:
           authkey: ${{ secrets.TAILSCALE_AUTH_KEY }}
           hostname: github-actions-runner
+          tags: tag:ci
 
-      - name: Wait for Tailscale connection
+      - name: Wait for Tailscale
         run: |
-          echo "Waiting for Tailscale to connect..."
-          sleep 15
-          echo "Tailscale status:"
-          tailscale status || echo "Tailscale status not available"
+          echo "Waiting 10s for Tailscale..."
+          sleep 10
+          tailscale status
 
-      # **FIX 1: Setup SSH Key dengan Format yang Benar**
-      - name: Setup SSH Key Properly
+      # Load SSH key into agent
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      # Add server to known_hosts
+      - name: Add server to known_hosts
         run: |
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-          
-          # Write private key dengan format yang benar
-          cat > ~/.ssh/id_rsa << 'EOF'
-          ${{ secrets.SSH_PRIVATE_KEY }}
-          EOF
-          
-          chmod 600 ~/.ssh/id_rsa
-          
-          # Verify key format
-          echo "=== SSH Key Verification ==="
-          ls -la ~/.ssh/
-          echo "Key content (first 3 lines):"
-          head -3 ~/.ssh/id_rsa
-          echo "Key content (last 3 lines):"
-          tail -3 ~/.ssh/id_rsa
-          
-          # Test if key is valid
-          if ssh-keygen -l -f ~/.ssh/id_rsa; then
-            echo "✅ SSH key is valid"
-          else
-            echo "❌ SSH key is invalid"
-            exit 1
-          fi
-
-      - name: Add server to known_hosts
-        run: |
           IP="${{ secrets.HOME_SERVER_TAILSCALE_IP }}"
-          echo "Adding $IP to known_hosts"
-          ssh-keygen -R "$IP" 2>/dev/null || true
-          ssh-keyscan -H "$IP" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh-keyscan -H "$IP" >> ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
 
-      # **FIX 2: Test SSH Connection dengan Verbose Debugging**
-      - name: Debug SSH Connection
-        run: |
-          IP="${{ secrets.HOME_SERVER_TAILSCALE_IP }}"
-          USER="${{ secrets.SSH_USER }}"
-          
-          echo "=== SSH Connection Debug ==="
-          echo "User: $USER"
-          echo "IP: $IP"
-          echo "Key file exists: $(test -f ~/.ssh/id_rsa && echo 'YES' || echo 'NO')"
-          echo "Key permissions: $(ls -l ~/.ssh/id_rsa)"
-          
-          # Test with verbose output
-          echo "=== Testing SSH Connection (Verbose) ==="
-          ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -v \
-            $USER@$IP "echo 'SSH TEST SUCCESS'" || echo "SSH TEST FAILED"
-
-      # **FIX 3: Deploy dengan Simple Commands**
+      # Deploy service
       - name: Deploy ${{ matrix.service }}
         env:
           SSH_USER: ${{ secrets.SSH_USER }}
           TAILSCALE_IP: ${{ secrets.HOME_SERVER_TAILSCALE_IP }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
-          SERVICE="${{ matrix.service }}"
-          echo "🚀 Deploying $SERVICE to home server..."
-          echo "📡 Target: $SSH_USER@$TAILSCALE_IP"
+          SERVICE=${{ matrix.service }}
+          echo "🚀 Deploying $SERVICE to $SSH_USER@$TAILSCALE_IP"
           
-          # Simple one-liner commands
-          set -x  # Enable debug output
-          
-          # 1. Pull image
-          ssh -o ConnectTimeout=30 -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa \
-            $SSH_USER@$TAILSCALE_IP \
-            "docker pull $DOCKERHUB_USERNAME/$SERVICE:latest"
-          
-          # 2. Update service
-          ssh -o ConnectTimeout=30 -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa \
-            $SSH_USER@$TAILSCALE_IP \
-            "cd /home/$SSH_USER && docker compose up -d $SERVICE"
-          
-          # 3. Verify
-          ssh -o ConnectTimeout=30 -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa \
-            $SSH_USER@$TAILSCALE_IP \
-            "docker ps --filter name=$SERVICE"
-          
-          set +x  # Disable debug output
-          echo "✅ $SERVICE deployment completed"
-
-  cleanup:
-    needs: deploy
-    runs-on: ubuntu-latest
-    if: always()
-    steps:
-      - name: Deployment summary
-        run: |
-          if [ "${{ needs.deploy.result }}" == "success" ]; then
-            echo "✅ All deployments completed successfully"
-          else
-            echo "❌ Deployment failed"
-            exit 1
-          fi
+          # Pull image and run container
+          ssh -o StrictHostKeyChecking=no $SSH_USER@$TAILSCALE_IP "
+            docker pull $DOCKERHUB_USERNAME/$SERVICE:latest &&
+            cd /home/$SSH_USER &&
+            docker compose pull $SERVICE &&
+            docker compose up -d $SERVICE &&
+            docker ps --filter name=$SERVICE
+          "
