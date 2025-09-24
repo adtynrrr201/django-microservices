@@ -129,7 +129,7 @@ jobs:
       # Deploy via heredoc dengan syntax aman
       - name: Deploy ${{ matrix.service }}
         env:
-          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_USER: ${{ secrets.SSH_USER }}@armbian
           TAILSCALE_IP: ${{ secrets.HOME_SERVER_TAILSCALE_IP }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
