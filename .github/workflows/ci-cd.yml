@@ -135,28 +135,12 @@ jobs:
         run: |
           SERVICE=${{ matrix.service }}
           echo "🚀 Deploying $SERVICE to $SSH_USER@$TAILSCALE_IP"
-          
-          ssh -o StrictHostKeyChecking=no $SSH_USER@$TAILSCALE_IP 
-            set -e
-            SERVICE_NAME="$SERVICE"
-            DOCKERHUB_USERNAME="$DOCKERHUB_USERNAME"
 
-            echo "1. Pulling latest image..."
-            docker pull $DOCKERHUB_USERNAME/$SERVICE_NAME:latest
-
-            echo "2. Changing to project directory..."
-            cd /home/$SSH_USER/myproject 
-
-            echo "3. Pulling & updating service..."
-            docker compose pull $SERVICE_NAME
-            docker compose up -d $SERVICE_NAME
-
-            echo "4. Check service status..."
-            docker ps --filter name=$SERVICE_NAME
-
-            echo "✅ Deployment of $SERVICE_NAME completed successfully"
-
-      - name: Verify deployment
-        run: |
-          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.HOME_SERVER_TAILSCALE_IP }} \
-            "docker ps --filter name=${{ matrix.service }} --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'"
+          ssh -o StrictHostKeyChecking=no $SSH_USER@$TAILSCALE_IP <<EOF
+            cd /home/$SSH_USER/myproject
+            echo "Pulling latest image for $SERVICE..."
+            docker compose pull $SERVICE
+            echo "Restarting $SERVICE..."
+            docker compose up -d $SERVICE
+            docker ps --filter name=$SERVICE
+          EOF
