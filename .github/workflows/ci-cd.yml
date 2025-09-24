@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        service: [auth_service, order_service]
+        service: [auth_service, order_service, payment_service]
 
     services:
       postgres:
@@ -65,7 +65,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        service: [auth_service, order_service]
+        service: [auth_service, order_service, payment_service]
 
     steps:
       - uses: actions/checkout@v4
@@ -93,7 +93,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        service: [auth_service, order_service]
+        service: [auth_service, order_service, payment_service]
 
     steps:
       - uses: actions/checkout@v4
