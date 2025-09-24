@@ -138,6 +138,6 @@ jobs:
           echo "Deploying $SERVICE to $SSH_USER@$TAILSCALE_IP"
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $SSH_USER@$TAILSCALE_IP "docker pull $DOCKERHUB_USERNAME/$SERVICE:latest"
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $SSH_USER@$TAILSCALE_IP "cd /home/$SSH_USER && docker-compose pull $SERVICE"
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $SSH_USER@$TAILSCALE_IP "cd /home/$SSH_USER && docker-compose up -d $SERVICE"
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $SSH_USER@$TAILSCALE_IP "cd /home/$SSH_USER && docker-compose up --build -d $SERVICE"
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $SSH_USER@$TAILSCALE_IP "docker ps --filter name=$SERVICE"
 
