@@ -82,12 +82,12 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          context: .
-          file: ./Dockerfile
+          context: ./services/${{ matrix.service }}
+          file: ./services/${{ matrix.service }}/Dockerfile
           push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/myproject:latest
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.service }}:latest
           
-   # === CD: Deploy to Home Server via Tailscale ===
+  # === CD: Deploy to Home Server via Tailscale ===
   deploy-home:
     needs: docker-build-and-push
     runs-on: ubuntu-latest
@@ -127,7 +127,7 @@ jobs:
           ssh-keyscan -H "$IP" >> ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
 
-      # **PERBAIKAN: Gunakan docker compose (V2) dengan spasi**
+      # Deploy via heredoc dengan syntax aman
       - name: Deploy ${{ matrix.service }}
         env:
           SSH_USER: ${{ secrets.SSH_USER }}
@@ -137,29 +137,27 @@ jobs:
           SERVICE=${{ matrix.service }}
           echo "🚀 Deploying $SERVICE to $SSH_USER@$TAILSCALE_IP"
           
-          # Gunakan heredoc untuk menghindari quoting issues
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa \
-            $SSH_USER@$TAILSCALE_IP
-            set -e  # Exit on error
-            
-            echo "1. Pulling latest image for $SERVICE..."
-            docker pull $DOCKERHUB_USERNAME/$SERVICE:latest
-            
-            echo "2. Changing to application directory..."
+          ssh -o StrictHostKeyChecking=no $SSH_USER@$TAILSCALE_IP 
+            set -e
+            SERVICE_NAME="$SERVICE"
+            DOCKERHUB_USERNAME="$DOCKERHUB_USERNAME"
+
+            echo "1. Pulling latest image..."
+            docker pull $DOCKERHUB_USERNAME/$SERVICE_NAME:latest
+
+            echo "2. Changing to project directory..."
             cd /home/$SSH_USER
-            
-            echo "3. Pulling and starting service..."
-            docker compose pull $SERVICE
-            docker compose up -d $SERVICE
-            
-            echo "4. Checking service status..."
-            docker ps --filter name=$SERVICE
-            
-            echo "✅ Deployment completed successfully"
+
+            echo "3. Pulling & updating service..."
+            docker compose pull $SERVICE_NAME
+            docker compose up -d $SERVICE_NAME
+
+            echo "4. Check service status..."
+            docker ps --filter name=$SERVICE_NAME
+
+            echo "✅ Deployment of $SERVICE_NAME completed successfully"
 
       - name: Verify deployment
         run: |
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa \
-            ${{ secrets.SSH_USER }}@${{ secrets.HOME_SERVER_TAILSCALE_IP }} \
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.HOME_SERVER_TAILSCALE_IP }} \
             "docker ps --filter name=${{ matrix.service }} --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'"
-
