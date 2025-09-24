@@ -133,25 +133,11 @@ jobs:
           SSH_USER: ${{ secrets.SSH_USER }}
           TAILSCALE_IP: ${{ secrets.HOME_SERVER_TAILSCALE_IP }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-  run: |
-    SERVICE=${{ matrix.service }}
-    echo "🚀 Deploying $SERVICE to $SSH_USER@$TAILSCALE_IP"
+        run: |
+          SERVICE=${{ matrix.service }}
+          echo "Deploying $SERVICE to $SSH_USER@$TAILSCALE_IP"
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $SSH_USER@$TAILSCALE_IP "docker pull $DOCKERHUB_USERNAME/$SERVICE:latest"
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $SSH_USER@$TAILSCALE_IP "cd /home/$SSH_USER && docker compose pull $SERVICE"
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $SSH_USER@$TAILSCALE_IP "cd /home/$SSH_USER && docker compose up -d $SERVICE"
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $SSH_USER@$TAILSCALE_IP "docker ps --filter name=$SERVICE"
 
-    # Multi-line SSH command
-    ssh -o StrictHostKeyChecking=no $SSH_USER@$TAILSCALE_IP <<'EOF'
-      SERVICE_NAME='"$SERVICE"'
-      DOCKERHUB_USERNAME='"$DOCKERHUB_USERNAME"'
-
-      echo "Pulling latest image..."
-      docker pull $DOCKERHUB_USERNAME/$SERVICE_NAME:latest
-
-      echo "Navigating to project directory..."
-      cd /home/$SSH_USER  # pastikan docker-compose.yml ada di sini
-
-      echo "Updating service..."
-      docker compose pull $SERVICE_NAME
-      docker compose up -d $SERVICE_NAME
-
-      echo "Check service status..."
-      docker ps --filter name=$SERVICE_NAME
-EOF
