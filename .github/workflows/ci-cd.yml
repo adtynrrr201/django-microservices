@@ -127,7 +127,7 @@ jobs:
           ssh-keyscan -H "$IP" >> ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
 
-      # Deploy service
+      # **PERBAIKAN: Gunakan docker compose (V2) dengan spasi**
       - name: Deploy ${{ matrix.service }}
         env:
           SSH_USER: ${{ secrets.SSH_USER }}
@@ -135,9 +135,31 @@ jobs:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
           SERVICE=${{ matrix.service }}
-          echo "Deploying $SERVICE to $SSH_USER@$TAILSCALE_IP"
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $SSH_USER@$TAILSCALE_IP "docker pull $DOCKERHUB_USERNAME/$SERVICE:latest"
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $SSH_USER@$TAILSCALE_IP "cd /home/$SSH_USER && docker-compose pull $SERVICE"
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $SSH_USER@$TAILSCALE_IP "cd /home/$SSH_USER && docker-compose up --build -d $SERVICE"
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $SSH_USER@$TAILSCALE_IP "docker ps --filter name=$SERVICE"
+          echo "🚀 Deploying $SERVICE to $SSH_USER@$TAILSCALE_IP"
+          
+          # Gunakan heredoc untuk menghindari quoting issues
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa \
+            $SSH_USER@$TAILSCALE_IP
+            set -e  # Exit on error
+            
+            echo "1. Pulling latest image for $SERVICE..."
+            docker pull $DOCKERHUB_USERNAME/$SERVICE:latest
+            
+            echo "2. Changing to application directory..."
+            cd /home/$SSH_USER
+            
+            echo "3. Pulling and starting service..."
+            docker compose pull $SERVICE
+            docker compose up -d $SERVICE
+            
+            echo "4. Checking service status..."
+            docker ps --filter name=$SERVICE
+            
+            echo "✅ Deployment completed successfully"
+
+      - name: Verify deployment
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa \
+            ${{ secrets.SSH_USER }}@${{ secrets.HOME_SERVER_TAILSCALE_IP }} \
+            "docker ps --filter name=${{ matrix.service }} --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'"
 
