@@ -145,7 +145,7 @@ jobs:
             docker pull $DOCKERHUB_USERNAME/$SERVICE_NAME:latest
 
             echo "2. Changing to project directory..."
-            cd /home/$SSH_USER || cd /tmp
+            cd /home/$SSH_USER 
 
             echo "3. Pulling & updating service..."
             docker compose pull $SERVICE_NAME
