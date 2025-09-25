@@ -18,9 +18,11 @@ from django.contrib import admin
 from django.urls import path
 from auth_service.views import health as auth_health
 from order_service.views import health as order_health
+from payment_service.views import health as payment_health
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('auth/health/', auth_health),
     path('order/health/', order_health),
+    path('payment/health/', payment_health),
 ]
