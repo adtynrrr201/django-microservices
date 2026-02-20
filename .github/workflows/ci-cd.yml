@@ -128,7 +128,7 @@ jobs:
           ssh-keyscan -H "$IP" >> ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
 
-      # Deploy via heredoc dengan syntax aman
+      # Deploy via SSH
       - name: Deploy ${{ matrix.service }}
         env:
           SSH_USER: ${{ secrets.SSH_USER }}
@@ -139,21 +139,20 @@ jobs:
           SERVICE=${{ matrix.service }}
           echo "🚀 Deploying $SERVICE to $SSH_USER@$TAILSCALE_IP"
 
-          ssh -o StrictHostKeyChecking=no $SSH_USER@$TAILSCALE_IP <<EOF
+          ssh -o StrictHostKeyChecking=no $SSH_USER@$TAILSCALE_IP "
             mkdir -p /home/$SSH_USER/myproject
             cd /home/$SSH_USER/myproject
-            
-            # Create docker-compose.yml if not exists
+
             if [ ! -f docker-compose.yml ]; then
-              echo "Creating docker-compose.yml..."
-              cat > docker-compose.yml <<'COMPOSE'
+              echo 'Creating docker-compose.yml...'
+              cat > docker-compose.yml << 'COMPOSE'
 version: '3.9'
 services:
   auth_service:
-    image: $DOCKERHUB_USERNAME/auth_service:latest
+    image: ${DOCKERHUB_USERNAME}/auth_service:latest
     container_name: auth_service
     ports:
-      - "8001:8000"
+      - \"8001:8000\"
     environment:
       - DB_NAME=coba
       - DB_USER=adityanur
@@ -165,10 +164,10 @@ services:
     restart: unless-stopped
 
   order_service:
-    image: $DOCKERHUB_USERNAME/order_service:latest
+    image: ${DOCKERHUB_USERNAME}/order_service:latest
     container_name: order_service
     ports:
-      - "8002:8000"
+      - \"8002:8000\"
     environment:
       - DB_NAME=coba
       - DB_USER=adityanur
@@ -180,14 +179,14 @@ services:
     restart: unless-stopped
 
   payment_service:
-    image: $DOCKERHUB_USERNAME/payment_service:latest
+    image: ${DOCKERHUB_USERNAME}/payment_service:latest
     container_name: payment_service
     ports:
-      - "8003:8000"
+      - \"8003:8000\"
     environment:
       - DB_NAME=coba
-      - DB_USER=aditya
-      - DB_PASSWORD=adityanur
+      - DB_USER=adityanur
+      - DB_PASSWORD=201201
       - DB_HOST=db
       - DB_PORT=5432
     depends_on:
@@ -199,12 +198,12 @@ services:
     container_name: postgres_db
     environment:
       POSTGRES_DB: coba
-      POSTGRES_USER: aditya
-      POSTGRES_PASSWORD: adityanur
+      POSTGRES_USER: adityanur
+      POSTGRES_PASSWORD: 201201
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - \"5432:5432\"
     restart: unless-stopped
 
 volumes:
@@ -212,11 +211,11 @@ volumes:
 COMPOSE
             fi
 
-            echo "Logging in to Docker Hub..."
-            echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
-            echo "Pulling latest image for $SERVICE..."
-            docker compose pull $SERVICE
-            echo "Restarting $SERVICE..."
-            docker compose up -d $SERVICE
-            docker ps --filter name=$SERVICE
-          EOF
+            echo 'Logging in to Docker Hub...'
+            echo '${DOCKERHUB_TOKEN}' | docker login -u '${DOCKERHUB_USERNAME}' --password-stdin
+            echo 'Pulling latest image for ${SERVICE}...'
+            docker compose pull ${SERVICE}
+            echo 'Restarting ${SERVICE}...'
+            docker compose up -d ${SERVICE}
+            docker ps --filter name=${SERVICE}
+          "
