@@ -22,7 +22,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd="pg_isready -U aditya -d coba"
+          --health-cmd="pg_isready -U adityanur -d coba"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=5
@@ -36,7 +36,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -73,7 +72,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -88,9 +86,8 @@ jobs:
         with:
           file: ./dockerfile
           push: true
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.service }}:latest
-          
   # === CD: Deploy to Home Server via Tailscale ===
   deploy-home:
     needs: docker-build-and-push
