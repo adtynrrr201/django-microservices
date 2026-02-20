@@ -128,7 +128,7 @@ jobs:
           ssh-keyscan -H "$IP" >> ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
 
-      # Deploy via heredoc dengan syntax aman
+      # Deploy via SSH - pull and run container
       - name: Deploy ${{ matrix.service }}
         env:
           SSH_USER: ${{ secrets.SSH_USER }}
@@ -140,12 +140,14 @@ jobs:
           echo "🚀 Deploying $SERVICE to $SSH_USER@$TAILSCALE_IP"
 
           ssh -o StrictHostKeyChecking=no $SSH_USER@$TAILSCALE_IP <<EOF
-            cd /home/$SSH_USER/myproject
             echo "Logging in to Docker Hub..."
-            echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
-            echo "Pulling latest image for $SERVICE..."
-            docker compose pull $SERVICE
-            echo "Restarting $SERVICE..."
-            docker compose up -d $SERVICE
-            docker ps --filter name=$SERVICE
+            echo "\$DOCKERHUB_TOKEN" | docker login -u "\$DOCKERHUB_USERNAME" --password-stdin
+            echo "Stopping existing container..."
+            docker stop \$SERVICE 2>/dev/null || true
+            docker rm \$SERVICE 2>/dev/null || true
+            echo "Pulling latest image for \$SERVICE..."
+            docker pull \$DOCKERHUB_USERNAME/\$SERVICE:latest
+            echo "Running \$SERVICE..."
+            docker run -d --name \$SERVICE --restart unless-stopped \$DOCKERHUB_USERNAME/\$SERVICE:latest
+            docker ps --filter name=\$SERVICE
           EOF
