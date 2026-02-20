@@ -139,6 +139,15 @@ jobs:
           SERVICE=${{ matrix.service }}
           echo "🚀 Deploying $SERVICE to $SSH_USER@$TAILSCALE_IP"
 
+          # Map ports: auth_service=8001, order_service=8002, payment_service=8003
+          if [ "$SERVICE" = "auth_service" ]; then
+            PORT=8001
+          elif [ "$SERVICE" = "order_service" ]; then
+            PORT=8002
+          elif [ "$SERVICE" = "payment_service" ]; then
+            PORT=8003
+          fi
+
           ssh -o StrictHostKeyChecking=no $SSH_USER@$TAILSCALE_IP <<EOF
             echo "Logging in to Docker Hub..."
             echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
@@ -147,7 +156,7 @@ jobs:
             docker rm $SERVICE 2>/dev/null || true
             echo "Pulling latest image for $SERVICE..."
             docker pull $DOCKERHUB_USERNAME/$SERVICE:latest
-            echo "Running $SERVICE..."
-            docker run -d --name $SERVICE --restart unless-stopped $DOCKERHUB_USERNAME/$SERVICE:latest
+            echo "Running $SERVICE on port $PORT..."
+            docker run -d --name $SERVICE --restart unless-stopped -p $PORT:8000 $DOCKERHUB_USERNAME/$SERVICE:latest
             docker ps --filter name=$SERVICE
           EOF
