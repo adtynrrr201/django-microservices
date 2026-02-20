@@ -17,8 +17,8 @@ jobs:
         image: postgres:16
         env:
           POSTGRES_DB: coba
-          POSTGRES_USER: adityanur
-          POSTGRES_PASSWORD: 201201
+          POSTGRES_USER: aditya
+          POSTGRES_PASSWORD: adityanur
         ports:
           - 5432:5432
         options: >-
@@ -28,7 +28,11 @@ jobs:
           --health-retries=5
 
     env:
-      DATABASE_URL: postgres://aditya:adityanur@localhost:5432/coba
+      POSTGRES_DB: coba
+      POSTGRES_USER: aditya
+      POSTGRES_PASSWORD: adityanur
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
 
     steps:
       - uses: actions/checkout@v4
