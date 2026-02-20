@@ -17,8 +17,8 @@ jobs:
         image: postgres:16
         env:
           POSTGRES_DB: coba
-          POSTGRES_USER: aditya
-          POSTGRES_PASSWORD: adityanur
+          POSTGRES_USER: adityanur
+          POSTGRES_PASSWORD: 201201
         ports:
           - 5432:5432
         options: >-
