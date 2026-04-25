@@ -107,6 +107,15 @@ jobs:
           oauth-secret: ${{ secrets.TS_OAUTH_CLIENT_SECRET }}
           tags: tag:ci
 
+      # Verify Tailscale Connection
+      - name: Verify Tailscale
+        run: |
+          until tailscale status | grep -q "connected"; do
+            echo "Waiting for Tailscale..."
+            sleep 2
+          done
+          tailscale ip -4
+
       # Load SSH key into agent
       - name: Setup SSH agent
         uses: webfactory/ssh-agent@v0.9.0
@@ -120,10 +129,10 @@ jobs:
           chmod 700 ~/.ssh
           IP="${{ secrets.HOME_SERVER_TAILSCALE_IP }}"
           echo "Attempting to connect to $IP via Tailscale..."
-          for i in {1..5}; do
+          for i in {1..10}; do
             ssh-keyscan -H "$IP" >> ~/.ssh/known_hosts && break
-            echo "Waiting for Tailscale connection... attempt $i"
-            sleep 5
+            echo "Waiting for SSH to be reachable at $IP... attempt $i"
+            sleep 10
           done
           chmod 644 ~/.ssh/known_hosts
 
@@ -134,6 +143,9 @@ jobs:
           TAILSCALE_IP: ${{ secrets.HOME_SERVER_TAILSCALE_IP }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          POSTGRES_DB: coba
+          POSTGRES_USER: adityanur
+          POSTGRES_PASSWORD: 201201
         run: |
           SERVICE=${{ matrix.service }}
           echo "🚀 Deploying $SERVICE to $SSH_USER@$TAILSCALE_IP"
@@ -147,15 +159,28 @@ jobs:
             PORT=8003
           fi
 
-          ssh -o StrictHostKeyChecking=no $SSH_USER@$TAILSCALE_IP <<EOF
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 $SSH_USER@$TAILSCALE_IP <<EOF
             echo "Logging in to Docker Hub..."
             echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+            
             echo "Stopping existing container..."
             docker stop $SERVICE 2>/dev/null || true
             docker rm $SERVICE 2>/dev/null || true
+            
             echo "Pulling latest image for $SERVICE..."
             docker pull $DOCKERHUB_USERNAME/$SERVICE:latest
+            
             echo "Running $SERVICE on port $PORT..."
-            docker run -d --name $SERVICE --restart unless-stopped -p $PORT:8000 $DOCKERHUB_USERNAME/$SERVICE:latest
+            # Note: We use the host's Tailscale IP for DB_HOST because the DB is exposed on the host
+            docker run -d --name $SERVICE \
+              --restart unless-stopped \
+              -p $PORT:8000 \
+              -e POSTGRES_DB=$POSTGRES_DB \
+              -e POSTGRES_USER=$POSTGRES_USER \
+              -e POSTGRES_PASSWORD=$POSTGRES_PASSWORD \
+              -e POSTGRES_HOST=$TAILSCALE_IP \
+              -e POSTGRES_PORT=5432 \
+              $DOCKERHUB_USERNAME/$SERVICE:latest
+            
             docker ps --filter name=$SERVICE
           EOF
