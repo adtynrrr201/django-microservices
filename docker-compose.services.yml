@@ -1,0 +1,63 @@
+version: '3.9'
+
+services:
+  auth_service:
+    image: ${DOCKERHUB_USERNAME}/auth_service:latest
+    container_name: auth_service
+    ports:
+      - "8001:8000"
+    environment:
+      - DB_NAME=coba
+      - DB_USER=aditya
+      - DB_PASSWORD=adityanur
+      - DB_HOST=db
+      - DB_PORT=5432
+    depends_on:
+      - db
+    restart: unless-stopped
+
+  order_service:
+    image: ${DOCKERHUB_USERNAME}/order_service:latest
+    container_name: order_service
+    ports:
+      - "8002:8000"
+    environment:
+      - DB_NAME=coba
+      - DB_USER=aditya
+      - DB_PASSWORD=adityanur
+      - DB_HOST=db
+      - DB_PORT=5432
+    depends_on:
+      - db
+    restart: unless-stopped
+
+  payment_service:
+    image: ${DOCKERHUB_USERNAME}/payment_service:latest
+    container_name: payment_service
+    ports:
+      - "8003:8000"
+    environment:
+      - DB_NAME=coba
+      - DB_USER=aditya
+      - DB_PASSWORD=adityanur
+      - DB_HOST=db
+      - DB_PORT=5432
+    depends_on:
+      - db
+    restart: unless-stopped
+
+  db:
+    image: postgres:16
+    container_name: postgres_db
+    environment:
+      POSTGRES_DB: coba
+      POSTGRES_USER: aditya
+      POSTGRES_PASSWORD: adityanur
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

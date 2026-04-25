@@ -1,0 +1,162 @@
+name: Django Monorepo CI/CD (Home Server via Tailscale)
+
+on:
+  push:
+    branches: ["main"]
+
+jobs:
+  # === CI ===
+  build-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [auth_service, order_service, payment_service]
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: coba
+          POSTGRES_USER: adityanur
+          POSTGRES_PASSWORD: 201201
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U adityanur -d coba"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    env:
+      POSTGRES_DB: coba
+      POSTGRES_USER: adityanur
+      POSTGRES_PASSWORD: 201201
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Wait for PostgreSQL
+        run: |
+          for i in {1..10}; do
+            if pg_isready -h localhost -p 5432 -U aditya -d coba; then
+              echo "PostgreSQL is ready!"
+              break
+            fi
+            echo "Waiting for PostgreSQL... Attempt $i/10"
+            sleep 3
+          done
+
+      - name: Run migrations
+        run: python manage.py migrate --noinput
+
+      - name: Run tests for ${{ matrix.service }}
+        run: python manage.py test ${{ matrix.service }} --noinput
+
+  # === CD: Docker Build & Push (Multi-arch) ===
+  docker-build-and-push:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [auth_service, order_service, payment_service]
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          file: ./dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.service }}:latest
+  # === CD: Deploy to Home Server via Tailscale ===
+  deploy-home:
+    needs: docker-build-and-push
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [auth_service, order_service, payment_service]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Setup Tailscale
+      - name: Setup Tailscale
+        uses: tailscale/github-action@v2
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTH_KEY }}
+          hostname: github-actions-runner
+          tags: tag:ci
+
+      - name: Wait for Tailscale
+        run: |
+          echo "Waiting 10s for Tailscale..."
+          sleep 10
+          tailscale status
+
+      # Load SSH key into agent
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      # Add server to known_hosts
+      - name: Add server to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          IP="${{ secrets.HOME_SERVER_TAILSCALE_IP }}"
+          ssh-keyscan -H "$IP" >> ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      # Deploy via SSH - pull and run container
+      - name: Deploy ${{ matrix.service }}
+        env:
+          SSH_USER: ${{ secrets.SSH_USER }}
+          TAILSCALE_IP: ${{ secrets.HOME_SERVER_TAILSCALE_IP }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          SERVICE=${{ matrix.service }}
+          echo "🚀 Deploying $SERVICE to $SSH_USER@$TAILSCALE_IP"
+
+          # Map ports: auth_service=8001, order_service=8002, payment_service=8003
+          if [ "$SERVICE" = "auth_service" ]; then
+            PORT=8001
+          elif [ "$SERVICE" = "order_service" ]; then
+            PORT=8002
+          elif [ "$SERVICE" = "payment_service" ]; then
+            PORT=8003
+          fi
+
+          ssh -o StrictHostKeyChecking=no $SSH_USER@$TAILSCALE_IP <<EOF
+            echo "Logging in to Docker Hub..."
+            echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+            echo "Stopping existing container..."
+            docker stop $SERVICE 2>/dev/null || true
+            docker rm $SERVICE 2>/dev/null || true
+            echo "Pulling latest image for $SERVICE..."
+            docker pull $DOCKERHUB_USERNAME/$SERVICE:latest
+            echo "Running $SERVICE on port $PORT..."
+            docker run -d --name $SERVICE --restart unless-stopped -p $PORT:8000 $DOCKERHUB_USERNAME/$SERVICE:latest
+            docker ps --filter name=$SERVICE
+          EOF
