@@ -48,7 +48,7 @@ jobs:
       - name: Wait for PostgreSQL
         run: |
           for i in {1..10}; do
-            if pg_isready -h localhost -p 5432 -U aditya -d coba; then
+            if pg_isready -h localhost -p 5432 -U adityanur -d coba; then
               echo "PostgreSQL is ready!"
               break
             fi
@@ -101,17 +101,10 @@ jobs:
 
       # Setup Tailscale
       - name: Setup Tailscale
-        uses: tailscale/github-action@v2
+        uses: tailscale/github-action@v3
         with:
           authkey: ${{ secrets.TAILSCALE_AUTH_KEY }}
-          hostname: github-actions-runner
           tags: tag:ci
-
-      - name: Wait for Tailscale
-        run: |
-          echo "Waiting 10s for Tailscale..."
-          sleep 10
-          tailscale status
 
       # Load SSH key into agent
       - name: Setup SSH agent
@@ -119,13 +112,18 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      # Add server to known_hosts
+      # Add server to known_hosts with retry
       - name: Add server to known_hosts
         run: |
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
           IP="${{ secrets.HOME_SERVER_TAILSCALE_IP }}"
-          ssh-keyscan -H "$IP" >> ~/.ssh/known_hosts
+          echo "Attempting to connect to $IP via Tailscale..."
+          for i in {1..5}; do
+            ssh-keyscan -H "$IP" >> ~/.ssh/known_hosts && break
+            echo "Waiting for Tailscale connection... attempt $i"
+            sleep 5
+          done
           chmod 644 ~/.ssh/known_hosts
 
       # Deploy via SSH - pull and run container
