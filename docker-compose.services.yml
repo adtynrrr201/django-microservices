@@ -7,11 +7,11 @@ services:
     ports:
       - "8001:8000"
     environment:
-      - DB_NAME=coba
-      - DB_USER=aditya
-      - DB_PASSWORD=adityanur
-      - DB_HOST=db
-      - DB_PORT=5432
+      - POSTGRES_DB=coba
+      - POSTGRES_USER=adityanur
+      - POSTGRES_PASSWORD=201201
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
     depends_on:
       - db
     restart: unless-stopped
@@ -22,11 +22,11 @@ services:
     ports:
       - "8002:8000"
     environment:
-      - DB_NAME=coba
-      - DB_USER=aditya
-      - DB_PASSWORD=adityanur
-      - DB_HOST=db
-      - DB_PORT=5432
+      - POSTGRES_DB=coba
+      - POSTGRES_USER=adityanur
+      - POSTGRES_PASSWORD=201201
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
     depends_on:
       - db
     restart: unless-stopped
@@ -37,11 +37,11 @@ services:
     ports:
       - "8003:8000"
     environment:
-      - DB_NAME=coba
-      - DB_USER=aditya
-      - DB_PASSWORD=adityanur
-      - DB_HOST=db
-      - DB_PORT=5432
+      - POSTGRES_DB=coba
+      - POSTGRES_USER=adityanur
+      - POSTGRES_PASSWORD=201201
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
     depends_on:
       - db
     restart: unless-stopped
@@ -51,8 +51,8 @@ services:
     container_name: postgres_db
     environment:
       POSTGRES_DB: coba
-      POSTGRES_USER: aditya
-      POSTGRES_PASSWORD: adityanur
+      POSTGRES_USER: adityanur
+      POSTGRES_PASSWORD: 201201
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
