@@ -17,19 +17,19 @@ jobs:
         image: postgres:16
         env:
           POSTGRES_DB: coba
-          POSTGRES_USER: adityanur
+          POSTGRES_USER: postgres
           POSTGRES_PASSWORD: 201201
         ports:
           - 5432:5432
         options: >-
-          --health-cmd="pg_isready -U adityanur -d coba"
+          --health-cmd="pg_isready -U postgres -d coba"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=5
 
     env:
       POSTGRES_DB: coba
-      POSTGRES_USER: adityanur
+      POSTGRES_USER: postgres
       POSTGRES_PASSWORD: 201201
       POSTGRES_HOST: localhost
       POSTGRES_PORT: 5432
@@ -48,7 +48,7 @@ jobs:
       - name: Wait for PostgreSQL
         run: |
           for i in {1..10}; do
-            if pg_isready -h localhost -p 5432 -U adityanur -d coba; then
+            if pg_isready -h localhost -p 5432 -U postgres -d coba; then
               echo "PostgreSQL is ready!"
               break
             fi
@@ -132,7 +132,7 @@ jobs:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
           POSTGRES_DB: coba
-          POSTGRES_USER: adityanur
+          POSTGRES_USER: postgres
           POSTGRES_PASSWORD: 201201
         run: |
           SERVICE=${{ matrix.service }}
