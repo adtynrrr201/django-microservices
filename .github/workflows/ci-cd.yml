@@ -99,22 +99,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Setup Tailscale
       - name: Setup Tailscale
-        uses: tailscale/github-action@v3
+        uses: tailscale/github-action@v2
         with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_CLIENT_SECRET }}
-          tags: tag:ci
-
-      # Verify Tailscale Connection
-      - name: Verify Tailscale
-        run: |
-          until tailscale status | grep -q "connected"; do
-            echo "Waiting for Tailscale..."
-            sleep 2
-          done
-          tailscale ip -4
+          auth_key: ${{ secrets.TAILSCALE_AUTH_KEY }}
 
       # Load SSH key into agent
       - name: Setup SSH agent
